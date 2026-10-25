@@ -733,6 +733,7 @@ public class FurnitureTable extends JTable implements View, Printable {
     TableColumnModel columnModel = getColumnModel();
     final DefaultTableCellRenderer defaultRenderer = new DefaultTableCellRenderer();
     defaultRenderer.setHorizontalAlignment(DefaultTableCellRenderer.CENTER);
+    final DefaultTableCellRenderer printableNameRenderer = new DefaultTableCellRenderer();
     TableCellRenderer printableHeaderRenderer = new TableCellRenderer() {
         public Component getTableCellRendererComponent(JTable table, Object value, 
                                    boolean isSelected, boolean hasFocus, int row, int column) {
@@ -750,8 +751,17 @@ public class FurnitureTable extends JTable implements View, Printable {
           return headerRendererLabel;
         }
       };
-    for (int columnIndex = 0, n = columnModel.getColumnCount(); columnIndex < n; columnIndex++) {
-      final TableColumn tableColumn = columnModel.getColumn(columnIndex);
+    boolean addLevelColumn = !((FurnitureTreeTableModel)getModel()).home.getLevels().isEmpty();
+    for (int i = 0; i < columnModel.getColumnCount(); i++) {
+      if (columnModel.getColumn(i).getIdentifier() == HomePieceOfFurniture.SortableProperty.LEVEL) {
+        addLevelColumn = false;
+      }
+    }
+    for (int columnIndex = 0, n = columnModel.getColumnCount();
+         columnIndex < n + (addLevelColumn ? 1 : 0); columnIndex++) {
+      final TableColumn tableColumn = columnIndex < n
+          ? columnModel.getColumn(columnIndex)
+          : ((FurnitureTableColumnModel)columnModel).availableColumns.get(HomePieceOfFurniture.SortableProperty.LEVEL);
       // Create a printable column from existing table column
       TableColumn printableColumn = new TableColumn();
       printableColumn.setIdentifier(tableColumn.getIdentifier());
@@ -759,10 +769,17 @@ public class FurnitureTable extends JTable implements View, Printable {
       TableCellRenderer printableCellRenderer = new TableCellRenderer() {
           public Component getTableCellRendererComponent(JTable table, Object value, 
                                  boolean isSelected, boolean hasFocus, int row, int column) {
-            // Delegate rendering to existing cell renderer 
-            TableCellRenderer cellRenderer = tableColumn.getCellRenderer();
-            Component rendererComponent = cellRenderer.getTableCellRendererComponent(table, value, 
-                isSelected, hasFocus, row, column);
+            // Print names as text instead of relying on the interactive tree renderer.
+            Component rendererComponent;
+            if (tableColumn.getIdentifier() == HomePieceOfFurniture.SortableProperty.NAME) {
+              rendererComponent = printableNameRenderer.getTableCellRendererComponent(table,
+                  value != null ? ((HomePieceOfFurniture)value).getName() : null,
+                  false, false, row, column);
+            } else {
+              TableCellRenderer cellRenderer = tableColumn.getCellRenderer();
+              rendererComponent = cellRenderer.getTableCellRendererComponent(table, value,
+                  isSelected, hasFocus, row, column);
+            }
             if (rendererComponent instanceof JCheckBox) {
               // Prefer a x sign for boolean values instead of check boxes
               rendererComponent = defaultRenderer.getTableCellRendererComponent(table, 
@@ -793,20 +810,22 @@ public class FurnitureTable extends JTable implements View, Printable {
     if (EventQueue.isDispatchThread()) {
       TableColumnModel oldColumnModel = getColumnModel();
       Color oldGridColor = getGridColor();
-      setColumnModel(printableColumnModel);   
-      if (OperatingSystem.isWindows()) {
-        // Add 3 pixels to columns to get a correct rendering
-        updateTableColumnsWidth(3);
-      } else {
-        updateTableColumnsWidth(0);
+      setColumnModel(printableColumnModel);
+      try {
+        if (OperatingSystem.isWindows()) {
+          // Add 3 pixels to columns to get a correct rendering
+          updateTableColumnsWidth(3);
+        } else {
+          updateTableColumnsWidth(0);
+        }
+        setGridColor(gridColor);
+        Printable printable = getPrintable(PrintMode.FIT_WIDTH, null, null);
+        return printable.print(g, pageFormat, pageIndex);
+      } finally {
+        // Keep the on-screen columns and colors unchanged, even if printing fails.
+        setColumnModel(oldColumnModel);
+        setGridColor(oldGridColor);
       }
-      setGridColor(gridColor);
-      Printable printable = getPrintable(PrintMode.FIT_WIDTH, null, null);
-      int pageExists = printable.print(g, pageFormat, pageIndex);
-      // Restore column model and grid color to their previous values
-      setColumnModel(oldColumnModel);
-      setGridColor(oldGridColor);
-      return pageExists;
     } else {
       // Print synchronously table in Event Dispatch Thread
       // The best solution should be to be able to print out of Event Dispatch Thread
